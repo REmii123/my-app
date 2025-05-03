@@ -1,0 +1,35 @@
+name: lol
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  audio_service: ^0.18.18
+  file_picker: ^10.1.2
+  flutter:
+    sdk: flutter
+  just_audio: ^0.10.2
+  just_audio_background: ^0.0.1-beta.16
+  path: ^1.9.0
+  path_provider: ^2.1.5
+  permission_handler: ^12.0.0+1
+  rxdart: ^0.28.0
+  shared_preferences: ^2.5.3
+
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/audios/Sanson ki mala pe remix   NFAK .mp3
+    - assets/audios/Skyfall- Adele.mp3
+    - assets/audios/Lana Del Rey - Young and beautiful.mp3
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+
