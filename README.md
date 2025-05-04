@@ -1,3 +1,3 @@
-# lol
+# Rhythmix 
 
-A new Flutter project.
+A Music Player created by Flutter
