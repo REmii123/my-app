@@ -1,122 +1,93 @@
 import 'package:flutter/material.dart';
-import 'music_player_screen.dart';
+import 'media_item.dart';
+import 'audio_player_service.dart';
 
 class SearchScreen extends StatefulWidget {
-  final List<Map<String, dynamic>> songs;
+  final List<MediaItem> mediaItems;
+  final AudioPlayerService audioPlayer;
 
-  const SearchScreen({Key? key, required this.songs}) : super(key: key);
+  const SearchScreen({
+    Key? key,
+    required this.mediaItems,
+    required this.audioPlayer,
+  }) : super(key: key);
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
 }
 
 class _SearchScreenState extends State<SearchScreen> {
+  late List<MediaItem> _filteredItems;
   final TextEditingController _searchController = TextEditingController();
-  List<Map<String, dynamic>> _searchResults = [];
 
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_onSearchChanged);
+    _filteredItems = widget.mediaItems;
   }
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  void _onSearchChanged() {
-    final query = _searchController.text.toLowerCase();
-    if (query.isNotEmpty) {
-      setState(() {
-        _searchResults = widget.songs.where((song) {
-          final title = song['title'].toString().toLowerCase();
-          final artist = song['artist'].toString().toLowerCase();
-          return title.contains(query) || artist.contains(query);
-        }).toList();
-      });
-    } else {
-      setState(() {
-        _searchResults = [];
-      });
+  Future<void> _playSong(int index) async {
+    try {
+      final paths = _filteredItems.map((item) => item.id).toList();
+      await widget.audioPlayer.setPlaylist(paths, initialIndex: index);
+      await widget.audioPlayer.play();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error playing song: ${e.toString()}')),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[900],
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
         title: TextField(
           controller: _searchController,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
+          decoration: const InputDecoration(
             hintText: 'Search songs...',
-            hintStyle: TextStyle(color: Colors.grey[500]),
             border: InputBorder.none,
-            prefixIcon: const Icon(Icons.search, color: Colors.white),
+            hintStyle: TextStyle(color: Colors.white70),
           ),
+          style: const TextStyle(color: Colors.white),
+          onChanged: (value) {
+            setState(() {
+              _filteredItems = widget.mediaItems
+                  .where((item) => item.title.toLowerCase().contains(value.toLowerCase()))
+                  .toList();
+            });
+          },
         ),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
       ),
-      body: _searchResults.isNotEmpty
-          ? ListView.builder(
-        itemCount: _searchResults.length,
+      body: ListView.builder(
+        itemCount: _filteredItems.length,
         itemBuilder: (context, index) {
-          final song = _searchResults[index];
-          return Card(
-            color: Colors.grey[850],
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
+          final item = _filteredItems[index];
+          final color = item.extras?['color'] as Color? ?? Colors.purpleAccent;
+          return ListTile(
+            leading: Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.music_note, color: Colors.white),
             ),
-            child: ListTile(
-              leading: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: song['color'].withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.music_note, color: Colors.white, size: 20),
-              ),
-              title: Text(
-                song['title'],
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-              subtitle: Text(
-                song['artist'],
-                style: TextStyle(
-                  color: Colors.grey[500],
-                  fontSize: 12,
-                ),
-              ),
-              onTap: () {
-                final index = widget.songs.indexWhere((s) => s['path'] == song['path']);
-                if (index != -1) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => MusicPlayerScreen(song: song, playlist: widget.songs, initialIndex: index),
-                    ),
-                  );
-                }
-              },
+            title: Text(
+              item.title,
+              style: const TextStyle(color: Colors.white),
             ),
+            subtitle: Text(
+              item.artist ?? 'Unknown Artist',
+              style: const TextStyle(color: Colors.white70),
+            ),
+            onTap: () => _playSong(index),
           );
         },
-      )
-          : Center(
-        child: Text(
-          'No songs found.',
-          style: TextStyle(color: Colors.grey[500]),
-        ),
       ),
     );
   }

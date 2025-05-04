@@ -1,17 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:just_audio_background/just_audio_background.dart';
+import 'audio_player_service.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
 import 'favorites_screen.dart';
-import 'splash_screen.dart';
+import 'media_item.dart';
+import 'splash_screen.dart';  // Added import
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.example.rhythmmix.channel.audio',
-    androidNotificationChannelName: 'RhythMix Playback',
-    androidNotificationOngoing: true,
-  );
+void main() {
   runApp(const MyApp());
 }
 
@@ -34,10 +29,9 @@ class MyApp extends StatelessWidget {
           secondary: Colors.purpleAccent,
         ),
       ),
-      initialRoute: '/',
+      home: const SplashScreen(),  // Changed to SplashScreen
       routes: {
-        '/': (context) => const SplashScreen(),
-        '/home': (context) => const HomeWrapper(),
+        '/home': (context) => const HomeWrapper(),  // Added route
       },
     );
   }
@@ -52,28 +46,22 @@ class HomeWrapper extends StatefulWidget {
 
 class _HomeWrapperState extends State<HomeWrapper> {
   int _currentIndex = 0;
-  final List<Widget> _screens = [
-    const HomeScreen(),
-    const LibraryScreen(songs: []),
-    const FavoritesScreen(allSongs: []),
-  ];
-
-  List<Map<String, dynamic>> _songs = [];
-
-  void _updateSongs(List<Map<String, dynamic>> songs) {
-    setState(() {
-      _songs = songs;
-      _screens[1] = LibraryScreen(songs: _songs);
-      _screens[2] = FavoritesScreen(allSongs: _songs);
-    });
-  }
+  final AudioPlayerService audioPlayer = AudioPlayerService();
+  final List<MediaItem> mediaItems = []; // Your list of songs here
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _screens,
+        children: [
+          HomeScreen(audioPlayer: audioPlayer),
+          LibraryScreen(mediaItems: mediaItems, audioPlayer: audioPlayer),
+          FavoritesScreen(
+            allSongs: mediaItems,
+            audioPlayer: audioPlayer,
+          ),
+        ],
       ),
       bottomNavigationBar: BottomNavigationBar(
         backgroundColor: Colors.grey[900],
@@ -82,9 +70,18 @@ class _HomeWrapperState extends State<HomeWrapper> {
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.library_music), label: 'Library'),
-          BottomNavigationBarItem(icon: Icon(Icons.favorite), label: 'Favorites'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.library_music),
+            label: 'Library',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.favorite),
+            label: 'Favorites',
+          ),
         ],
       ),
     );

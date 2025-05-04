@@ -1,29 +1,29 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path/path.dart' as p;
-
+import 'audio_player_service.dart';
+import 'media_item.dart';
 import 'library_screen.dart';
 import 'music_player_screen.dart';
 import 'favorites_screen.dart';
+import 'search_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final AudioPlayerService audioPlayer;
+
+  const HomeScreen({super.key, required this.audioPlayer});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  List<Map<String, dynamic>> _songs = [];
-  List<Map<String, dynamic>> _recentlyPlayed = [];
-  List<Map<String, dynamic>> _recentlyAdded = [];
+  List<MediaItem> _mediaItems = [];
+  List<MediaItem> _recentlyPlayed = [];
+  List<MediaItem> _recentlyAdded = [];
   bool _isLoading = true;
-  int _currentSongIndex = 0;
-  bool _isPlaying = false;
   final PageController _pageController = PageController(viewportFraction: 0.9);
   Timer? _sliderTimer;
 
@@ -36,7 +36,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _sliderTimer?.cancel();
-    _audioPlayer.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -85,7 +84,6 @@ class _HomeScreenState extends State<HomeScreen> {
               foundSongs.add({
                 'title': fileName,
                 'artist': 'Unknown Artist',
-                'album': 'Unknown Album',
                 'path': path,
                 'color': _getColor(foundSongs.length),
                 'lastModified': await file.lastModified(),
@@ -98,20 +96,30 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    setState(() {
-      _songs = foundSongs;
-      _isLoading = false;
-    });
+    _mediaItems = foundSongs.map((song) => MediaItem(
+      id: song['path'],
+      title: song['title'],
+      artist: song['artist'],
+      artUri: Uri.parse('asset:///assets/music_note.png'),
+      extras: {'color': song['color'], 'lastModified': song['lastModified']},
+    )).toList();
+
+    setState(() => _isLoading = false);
   }
 
   void _prepareLists() {
-    if (_songs.isEmpty) return;
+    if (_mediaItems.isEmpty) return;
 
-    _recentlyPlayed = _songs.length > 3 ? _songs.sublist(0, 3) : List.from(_songs);
+    _recentlyPlayed = _mediaItems.length > 3
+        ? _mediaItems.sublist(0, 3)
+        : List.from(_mediaItems);
 
-    final sorted = List<Map<String, dynamic>>.from(_songs)
-      ..sort((a, b) => b['lastModified'].compareTo(a['lastModified']));
-    _recentlyAdded = sorted.length > 5 ? sorted.sublist(0, 5) : sorted;
+    _recentlyAdded = List.from(_mediaItems)
+      ..sort((a, b) => (b.extras!['lastModified'] as DateTime)
+          .compareTo(a.extras!['lastModified'] as DateTime));
+    if (_recentlyAdded.length > 5) {
+      _recentlyAdded = _recentlyAdded.sublist(0, 5);
+    }
   }
 
   Color _getColor(int index) {
@@ -143,15 +151,68 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _playSong(int index) async {
     try {
-      _currentSongIndex = index;
-      await _audioPlayer.setFilePath(_songs[index]['path']);
-      await _audioPlayer.play();
-      setState(() => _isPlaying = true);
+      final paths = _mediaItems.map((item) => item.id).toList();
+      await widget.audioPlayer.setPlaylist(paths, initialIndex: index);
+      await widget.audioPlayer.play();
+
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => MusicPlayerScreen(
+            playlist: _mediaItems,
+            initialIndex: index,
+            audioPlayer: widget.audioPlayer,
+          ),
+        ),
+      );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error playing song: ${e.toString()}')),
       );
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('RhythMix'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => SearchScreen(
+                    mediaItems: _mediaItems,
+                    audioPlayer: widget.audioPlayer,
+                  ),
+                ),
+              );
+            },
+          )
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildRecentlyPlayed(),
+            _buildRecentlyAdded(),
+            _buildAllSongs(),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildRecentlyPlayed() {
@@ -180,21 +241,22 @@ class _HomeScreenState extends State<HomeScreen> {
               itemCount: _recentlyPlayed.length,
               itemBuilder: (context, index) {
                 final song = _recentlyPlayed[index];
+                final color = song.extras!['color'] as Color;
                 return GestureDetector(
-                  onTap: () => _playSong(_songs.indexWhere((s) => s['path'] == song['path'])),
+                  onTap: () => _playSong(_mediaItems.indexOf(song)),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                     child: Container(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [song['color'], Colors.black87],
+                          colors: [color, Colors.black87],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
                         borderRadius: BorderRadius.circular(18),
                         boxShadow: [
                           BoxShadow(
-                            color: song['color'].withOpacity(0.5),
+                            color: color.withOpacity(0.5),
                             blurRadius: 12,
                             spreadRadius: 3,
                             offset: const Offset(0, 4),
@@ -217,24 +279,27 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                           Positioned(
-                            top: 16,
+                            bottom: 16,
                             right: 16,
-                            child: Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                color: Colors.white24,
-                                shape: BoxShape.circle,
+                            child: GestureDetector(
+                              onTap: () => _playSong(_mediaItems.indexOf(song)),
+                              child: Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.2),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.play_arrow, color: Colors.white, size: 28),
                               ),
-                              child: const Icon(Icons.play_arrow, color: Colors.white, size: 28),
                             ),
                           ),
                           Positioned(
-                            bottom: 40,
+                            bottom: 60,
                             left: 16,
                             right: 16,
                             child: Text(
-                              song['title'],
+                              song.title,
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
@@ -245,11 +310,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                           Positioned(
-                            bottom: 16,
+                            bottom: 36,
                             left: 16,
                             right: 16,
                             child: Text(
-                              song['artist'],
+                              song.artist ?? 'Unknown Artist',
                               style: const TextStyle(color: Colors.white70, fontSize: 14),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -286,57 +351,90 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         SizedBox(
-          height: 140,
+          height: 180,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: _recentlyAdded.length,
             itemBuilder: (context, index) {
               final song = _recentlyAdded[index];
+              final color = song.extras!['color'] as Color;
               return GestureDetector(
-                onTap: () => _playSong(_songs.indexWhere((s) => s['path'] == song['path'])),
+                onTap: () => _playSong(_mediaItems.indexOf(song)),
                 child: Container(
-                  width: 100,
+                  width: 140,
                   margin: const EdgeInsets.only(right: 12),
                   decoration: BoxDecoration(
-                    color: song['color'].withOpacity(0.8),
+                    color: color.withOpacity(0.8),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            color: Colors.white24,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(Icons.music_note, color: Colors.white, size: 20),
+                  child: Stack(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              height: 100,
+                              decoration: BoxDecoration(
+                                color: Colors.white24,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Stack(
+                                children: [
+                                  Center(
+                                    child: Icon(
+                                      Icons.music_note,
+                                      color: Colors.white.withOpacity(0.6),
+                                      size: 40,
+                                    ),
+                                  ),
+                                  Positioned(
+                                    bottom: 8,
+                                    right: 8,
+                                    child: GestureDetector(
+                                      onTap: () => _playSong(_mediaItems.indexOf(song)),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withOpacity(0.6),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.play_arrow,
+                                          color: Colors.white,
+                                          size: 24,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              song.title,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              song.artist ?? 'Unknown Artist',
+                              style: const TextStyle(color: Colors.white70, fontSize: 12),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 12),
-                        Text(
-                          song['title'],
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold
-                          ),
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          song['artist'],
-                          style: const TextStyle(color: Colors.white70, fontSize: 10),
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               );
@@ -348,7 +446,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildAllSongs() {
-    if (_songs.isEmpty) return const SizedBox();
+    if (_mediaItems.isEmpty) return const SizedBox();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -371,7 +469,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => LibraryScreen(songs: _songs),
+                      builder: (context) => LibraryScreen(
+                        mediaItems: _mediaItems,
+                        audioPlayer: widget.audioPlayer,
+                      ),
                     ),
                   );
                 },
@@ -390,9 +491,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ListView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: _songs.length > 5 ? 5 : _songs.length,
+          itemCount: _mediaItems.length > 5 ? 5 : _mediaItems.length,
           itemBuilder: (context, index) {
-            final song = _songs[index];
+            final song = _mediaItems[index];
+            final color = song.extras!['color'] as Color;
             return GestureDetector(
               onTap: () => _playSong(index),
               child: Card(
@@ -403,16 +505,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 child: ListTile(
                   leading: Container(
-                    width: 40,
-                    height: 40,
+                    width: 48,
+                    height: 48,
                     decoration: BoxDecoration(
-                      color: song['color'].withOpacity(0.3),
+                      color: color.withOpacity(0.3),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(Icons.music_note, color: Colors.white),
+                    child: const Icon(Icons.music_note, color: Colors.white, size: 24),
                   ),
                   title: Text(
-                    song['title'],
+                    song.title,
                     style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold
@@ -420,9 +522,24 @@ class _HomeScreenState extends State<HomeScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                   subtitle: Text(
-                    song['artist'],
+                    song.artist ?? 'Unknown Artist',
                     style: const TextStyle(color: Colors.white70),
                     overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: GestureDetector(
+                    onTap: () => _playSong(index),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.purpleAccent.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.play_arrow,
+                        color: Colors.purpleAccent,
+                        size: 24,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -430,37 +547,6 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         ),
       ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: const Text('RhythMix'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {},
-          )
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildRecentlyPlayed(),
-            _buildRecentlyAdded(),
-            _buildAllSongs(),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
     );
   }
 }

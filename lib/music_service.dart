@@ -1,50 +1,41 @@
-import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
-import 'dart:io';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:just_audio/just_audio.dart';
 
-class MusicService {
-  static Future<List<Map<String, dynamic>>> getDeviceSongs() async {
-    if (!await _checkPermissions()) return [];
+class AudioPlayerService {
+  final AudioPlayer _player = AudioPlayer();
 
-    try {
-      final String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
-      if (selectedDirectory == null) return [];
+  AudioPlayer get player => _player;
 
-      final musicDir = Directory(selectedDirectory);
-      final files = await musicDir.list()
-          .where((file) => file.path.endsWith('.mp3') || file.path.endsWith('.m4a'))
-          .toList();
+  Future<void> play() => _player.play();
+  Future<void> pause() => _player.pause();
+  Future<void> stop() => _player.stop();
 
-      return files.map((file) => _createSongMap(file)).toList();
-    } catch (e) {
-      debugPrint('Error loading songs: $e');
-      return [];
+  Future<void> setPlaylist(List<String> paths, {int initialIndex = 0}) async {
+    await _player.setAudioSource(
+      ConcatenatingAudioSource(
+        children: paths.map((path) => AudioSource.uri(Uri.file(path))).toList(),
+      ),
+      initialIndex: initialIndex,
+    );
+  }
+
+  Future<void> skipToNext() async {
+    if (_player.hasNext) await _player.seekToNext();
+  }
+
+  Future<void> skipToPrevious() async {
+    final position = await _player.position;
+    if (position.inSeconds > 3) {
+      await _player.seek(Duration.zero);
+    } else if (_player.hasPrevious) {
+      await _player.seekToPrevious();
     }
   }
 
-  static Map<String, dynamic> _createSongMap(FileSystemEntity file) {
-    final path = file.path;
-    final fileName = path.split('/').last;
-    return {
-      'path': path,
-      'title': fileName.replaceAll('.mp3', '').replaceAll('.m4a', ''),
-      'artist': 'Unknown Artist',
-      'color': _generateColor(fileName),
-      'isAsset': false,
-    };
+  Future<void> skipToIndex(int index) async {
+    await _player.seek(Duration.zero, index: index);
   }
 
-  static Future<bool> _checkPermissions() async {
-    final status = await Permission.storage.status;
-    if (!status.isGranted) {
-      return (await Permission.storage.request()).isGranted;
-    }
-    return true;
-  }
-
-  static Color _generateColor(String input) {
-    final colors = Colors.primaries;
-    return colors[input.hashCode % colors.length];
+  void dispose() {
+    _player.dispose();
   }
 }
